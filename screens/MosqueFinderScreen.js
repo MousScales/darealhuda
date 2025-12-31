@@ -291,7 +291,7 @@ export default function MosqueFinderScreen({ navigation }) {
       }
     } catch (error) {
       console.error('Error fetching mosques:', error);
-              Alert.alert(t('error', currentLanguage), t('failedToLoadMosqueData', currentLanguage));
+      Alert.alert(t('error', currentLanguage), t('failedToLoadMosqueData', currentLanguage));
     } finally {
       setSearchingMosques(false);
     }

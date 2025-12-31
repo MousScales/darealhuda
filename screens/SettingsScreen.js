@@ -427,7 +427,20 @@ export default function SettingsScreen({ navigation, onLogout }) {
         setPrayerBlockerAuthorized(isAuthorized);
         
         const enabled = await AsyncStorage.getItem('prayerBlockerEnabled');
-        setPrayerBlockerEnabled(enabled === 'true');
+        
+        // Check subscription status
+        subscriptionGuard.resetCache();
+        const isSubscribed = await subscriptionGuard.forceCheckSubscriptionStatus();
+        
+        // If not subscribed, automatically disable prayer blocker
+        if (!isSubscribed && enabled === 'true') {
+          console.log('⚠️ User not subscribed - disabling prayer blocker');
+          setPrayerBlockerEnabled(false);
+          await AsyncStorage.setItem('prayerBlockerEnabled', 'false');
+          await prayerBlockerService.stopPrayerBlocking();
+        } else {
+          setPrayerBlockerEnabled(enabled === 'true');
+        }
         
         // Check if apps have been selected
         const storage = new ExtensionStorage('group.com.digaifounder.huda');
@@ -445,6 +458,20 @@ export default function SettingsScreen({ navigation, onLogout }) {
 
   const handleRequestAuthorization = async () => {
     try {
+      // Check subscription first
+      subscriptionGuard.resetCache();
+      const isSubscribed = await subscriptionGuard.forceCheckSubscriptionStatus();
+      
+      if (!isSubscribed) {
+        setShowSubscriptionModal(true);
+        Alert.alert(
+          'Premium Feature',
+          'Prayer Time App Blocker is a premium feature. Please subscribe to use this feature.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
       setPrayerBlockerLoading(true);
       const authorized = await prayerBlockerService.requestAuthorization();
       setPrayerBlockerAuthorized(authorized);
@@ -479,6 +506,20 @@ export default function SettingsScreen({ navigation, onLogout }) {
 
   const handleSelectApps = async () => {
     try {
+      // Check subscription first
+      subscriptionGuard.resetCache();
+      const isSubscribed = await subscriptionGuard.forceCheckSubscriptionStatus();
+      
+      if (!isSubscribed) {
+        setShowSubscriptionModal(true);
+        Alert.alert(
+          'Premium Feature',
+          'Prayer Time App Blocker is a premium feature. Please subscribe to use this feature.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
       setPrayerBlockerLoading(true);
       await prayerBlockerService.selectAppsToBlock();
       
@@ -520,6 +561,23 @@ export default function SettingsScreen({ navigation, onLogout }) {
 
   const handlePrayerBlockerToggle = async (enabled) => {
     try {
+      // Check subscription status first
+      subscriptionGuard.resetCache();
+      const isSubscribed = await subscriptionGuard.forceCheckSubscriptionStatus();
+      
+      if (!isSubscribed) {
+        // If not subscribed, show subscription modal and reset switch
+        setPrayerBlockerEnabled(false);
+        await AsyncStorage.setItem('prayerBlockerEnabled', 'false');
+        setShowSubscriptionModal(true);
+        Alert.alert(
+          'Premium Feature',
+          'Prayer Time App Blocker is a premium feature. Please subscribe to use this feature.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
       setPrayerBlockerEnabled(enabled);
       await AsyncStorage.setItem('prayerBlockerEnabled', enabled.toString());
       
@@ -1522,19 +1580,32 @@ export default function SettingsScreen({ navigation, onLogout }) {
             <Switch
               value={prayerBlockerEnabled}
               onValueChange={handlePrayerBlockerToggle}
-              disabled={!prayerBlockerAuthorized || prayerBlockerLoading}
+              disabled={!prayerBlockerAuthorized || prayerBlockerLoading || !subscriptionInfo || subscriptionInfo.status !== 'active'}
+              trackColor={{ false: '#767577', true: subscriptionInfo && subscriptionInfo.status === 'active' ? '#81b0ff' : '#cccccc' }}
+              thumbColor={prayerBlockerEnabled ? '#f4f3f4' : '#f4f3f4'}
+              ios_backgroundColor={subscriptionInfo && subscriptionInfo.status === 'active' ? '#3e3e3e' : '#cccccc'}
             />
           </View>
           
           {!prayerBlockerAuthorized && (
             <TouchableOpacity
-              style={styles.authorizeButton}
+              style={[
+                styles.authorizeButton,
+                (!subscriptionInfo || subscriptionInfo.status !== 'active') && styles.disabledButton
+              ]}
               onPress={handleRequestAuthorization}
-              disabled={prayerBlockerLoading}
+              disabled={prayerBlockerLoading || !subscriptionInfo || subscriptionInfo.status !== 'active'}
             >
               <View style={styles.authorizeContent}>
-                <Ionicons name="lock-closed" size={20} color="#FFFFFF" />
-                <Text style={styles.authorizeText}>
+                <Ionicons 
+                  name="lock-closed" 
+                  size={20} 
+                  color={(!subscriptionInfo || subscriptionInfo.status !== 'active') ? '#666666' : '#FFFFFF'} 
+                />
+                <Text style={[
+                  styles.authorizeText,
+                  (!subscriptionInfo || subscriptionInfo.status !== 'active') && styles.disabledText
+                ]}>
                   {prayerBlockerLoading ? 'Requesting...' : 'Authorize Screen Time'}
                 </Text>
               </View>
@@ -1544,18 +1615,50 @@ export default function SettingsScreen({ navigation, onLogout }) {
           {prayerBlockerAuthorized && (
             <View>
               <TouchableOpacity
-                style={styles.selectAppsButton}
+                style={[
+                  styles.selectAppsButton,
+                  (!subscriptionInfo || subscriptionInfo.status !== 'active') && styles.disabledButton
+                ]}
                 onPress={handleSelectApps}
-                disabled={prayerBlockerLoading}
+                disabled={prayerBlockerLoading || !subscriptionInfo || subscriptionInfo.status !== 'active'}
               >
                 <View style={styles.selectAppsContent}>
-                  <Ionicons name="apps" size={20} color="#888888" />
-                  <Text style={styles.selectAppsText}>Select Apps to Block</Text>
-                  <Ionicons name="chevron-forward" size={16} color="#888888" />
+                  <Ionicons 
+                    name="apps" 
+                    size={20} 
+                    color={(!subscriptionInfo || subscriptionInfo.status !== 'active') ? '#444444' : '#888888'} 
+                  />
+                  <Text style={[
+                    styles.selectAppsText,
+                    (!subscriptionInfo || subscriptionInfo.status !== 'active') && styles.disabledText
+                  ]}>
+                    Select Apps to Block
+                  </Text>
+                  <Ionicons 
+                    name="chevron-forward" 
+                    size={16} 
+                    color={(!subscriptionInfo || subscriptionInfo.status !== 'active') ? '#444444' : '#888888'} 
+                  />
                 </View>
               </TouchableOpacity>
               
             </View>
+          )}
+          
+          {/* Premium Feature Overlay */}
+          {(!subscriptionInfo || subscriptionInfo.status !== 'active') && (
+            <TouchableOpacity 
+              style={styles.premiumOverlay}
+              activeOpacity={0.9}
+              onPress={() => setShowSubscriptionModal(true)}
+            >
+              <View style={styles.premiumOverlayContent}>
+                <Text style={styles.premiumOverlayTitle}>Hudā Premium Feature</Text>
+                <Text style={styles.premiumOverlaySubtitle}>
+                  Please subscribe to use Prayer Blocker
+                </Text>
+              </View>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -1636,43 +1739,9 @@ export default function SettingsScreen({ navigation, onLogout }) {
             
           </View>
           
-          {/* Clear Scheduled Notifications Button */}
-          <TouchableOpacity 
-            style={styles.resetNotificationButton}
-            onPress={handleClearScheduledNotifications}
-          >
-            <View style={styles.logoutContent}>
-              <View style={[styles.logoutIconWrapper, { backgroundColor: '#4A3A3A' }]}>
-                <Ionicons name="trash-outline" size={20} color="#FF9800" />
-              </View>
-              <View style={styles.logoutTextContainer}>
-                <Text style={[styles.logoutText, { color: '#FF9800' }]}>Clear Scheduled Notifications</Text>
-                <Text style={styles.logoutDescription}>Remove old/random notifications</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color="#FF9800" />
-            </View>
-          </TouchableOpacity>
-          
-          {/* Reset Notifications Button */}
-          <TouchableOpacity 
-            style={[styles.resetNotificationButton, { marginTop: 12 }]}
-            onPress={handleResetNotifications}
-          >
-            <View style={styles.logoutContent}>
-              <View style={[styles.logoutIconWrapper, { backgroundColor: '#3A4A3A' }]}>
-                <Ionicons name="notifications-off-outline" size={20} color="#4CAF50" />
-              </View>
-              <View style={styles.logoutTextContainer}>
-                <Text style={[styles.logoutText, { color: '#4CAF50' }]}>Reset Notifications</Text>
-                <Text style={styles.logoutDescription}>Fix duplicate notifications</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
-            </View>
-          </TouchableOpacity>
-          
           {/* Logout Button */}
           <TouchableOpacity 
-            style={[styles.logoutButton, { marginTop: 12 }]}
+            style={styles.logoutButton}
             onPress={handleLogout}
           >
             <View style={styles.logoutContent}>
@@ -1842,6 +1911,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#2A2A2A',
+    position: 'relative',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -2574,5 +2644,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 10,
+  },
+  disabledButton: {
+    opacity: 0.4,
+    backgroundColor: '#1A1A1A',
+  },
+  disabledText: {
+    color: '#666666',
+  },
+  premiumOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  premiumOverlayContent: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  premiumOverlayTitle: {
+    color: '#D4A574',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  premiumOverlaySubtitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '400',
+    textAlign: 'center',
+    opacity: 0.9,
   },
 });
