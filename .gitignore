@@ -41,3 +41,4 @@ constants/apiKeys.js
 android/app/google-services.json
 GoogleService-Info.plist
 scripts/serviceAccountKey.json
+Huda Firebase Admin SDK.json
