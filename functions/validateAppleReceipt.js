@@ -1,5 +1,9 @@
-const functions = require('firebase-functions');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const axios = require('axios');
+
+// Define the Apple shared secret as a secret parameter
+const appleSharedSecret = defineSecret('APPLE_SHARED_SECRET');
 
 // Apple's receipt validation endpoints
 const APPLE_SANDBOX_URL = 'https://sandbox.itunes.apple.com/verifyReceipt';
@@ -113,26 +117,28 @@ function checkSubscriptionStatus(validationResult, productId) {
 /**
  * Firebase function to validate Apple receipt
  */
-exports.validateAppleReceipt = functions.https.onCall(async (data, context) => {
-  try {
-    // Check if user is authenticated
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
-    }
+exports.validateAppleReceipt = onCall(
+  { secrets: [appleSharedSecret] },
+  async (request) => {
+    try {
+      // Check if user is authenticated
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated');
+      }
 
-    const { receiptData, productId } = data;
-    
-    if (!receiptData || !productId) {
-      throw new functions.https.HttpsError('invalid-argument', 'receiptData and productId are required');
-    }
+      const { receiptData, productId } = request.data;
+      
+      if (!receiptData || !productId) {
+        throw new HttpsError('invalid-argument', 'receiptData and productId are required');
+      }
 
-    // Get app-specific shared secret from Firebase Functions config
-    const sharedSecret = functions.config().apple?.shared_secret;
-    if (!sharedSecret) {
-      throw new functions.https.HttpsError('internal', 'Apple shared secret not configured');
-    }
+      // Get app-specific shared secret from Firebase secrets
+      const sharedSecret = appleSharedSecret.value();
+      if (!sharedSecret) {
+        throw new HttpsError('internal', 'Apple shared secret not configured');
+      }
 
-    console.log('🔍 Validating receipt for user:', context.auth.uid);
+    console.log('🔍 Validating receipt for user:', request.auth.uid);
     console.log('📦 Product ID:', productId);
 
     // Validate receipt with Apple
@@ -146,7 +152,7 @@ exports.validateAppleReceipt = functions.https.onCall(async (data, context) => {
       const admin = require('firebase-admin');
       const db = admin.firestore();
       
-      await db.collection('users').doc(context.auth.uid)
+      await db.collection('users').doc(request.auth.uid)
         .collection('subscription').doc('apple').set({
           productId: subscriptionStatus.subscription.product_id,
           purchaseDate: subscriptionStatus.purchaseDate,
@@ -158,7 +164,7 @@ exports.validateAppleReceipt = functions.https.onCall(async (data, context) => {
           originalTransactionId: subscriptionStatus.subscription.original_transaction_id
         });
       
-      console.log('✅ Subscription saved to Firestore for user:', context.auth.uid);
+      console.log('✅ Subscription saved to Firestore for user:', request.auth.uid);
     }
 
     return {
@@ -172,7 +178,7 @@ exports.validateAppleReceipt = functions.https.onCall(async (data, context) => {
 
   } catch (error) {
     console.error('❌ Error in validateAppleReceipt function:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new HttpsError('internal', error.message);
   }
 });
 
